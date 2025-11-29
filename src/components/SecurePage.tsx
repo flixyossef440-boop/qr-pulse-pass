@@ -390,8 +390,8 @@ const SecurePage = () => {
           <div className="flex items-center gap-3">
             <ShieldCheck className="w-8 h-8 text-primary" />
             <div>
-              <h1 className="font-display text-xl text-glow">SECURE ZONE</h1>
-              <p className="text-xs text-muted-foreground font-mono">{validationMessage}</p>
+              <h1 className="font-display text-xl text-glow">QUANTUM LOCK</h1>
+              <p className="text-xs text-muted-foreground font-mono">from <span className="text-primary">G-AID</span></p>
             </div>
           </div>
           

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { validateToken, storeSessionToken, hasValidSession, clearSession } from '@/lib/tokenUtils';
 import { getDeviceFingerprint } from '@/lib/deviceFingerprint';
-import { ShieldCheck, ShieldX, Loader2, Lock, Home, LogOut, User, IdCard, Send, Clock, AlertTriangle } from 'lucide-react';
+import { ShieldCheck, ShieldX, Loader2, Lock, Home, LogOut, User, IdCard, Send, Clock, AlertTriangle, BookOpen, Calendar } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -82,8 +82,10 @@ const SecurePage = () => {
   const [deviceId, setDeviceId] = useState<string>('');
   
   // Form state
+  const [subjectName, setSubjectName] = useState('');
   const [name, setName] = useState('');
   const [userId, setUserId] = useState('');
+  const [weekNumber, setWeekNumber] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
 
@@ -196,7 +198,7 @@ const SecurePage = () => {
       return;
     }
     
-    if (!name.trim() || !userId.trim()) {
+    if (!subjectName.trim() || !name.trim() || !userId.trim() || !weekNumber.trim()) {
       toast({
         title: "خطأ",
         description: "يرجى ملء جميع الحقول",
@@ -219,7 +221,12 @@ const SecurePage = () => {
       const response = await fetch('/api/send-to-telegram', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), id: userId.trim() }),
+        body: JSON.stringify({ 
+          subjectName: subjectName.trim(),
+          name: name.trim(), 
+          id: userId.trim(),
+          weekNumber: weekNumber.trim()
+        }),
       });
 
       const data = await response.json();
@@ -437,7 +444,24 @@ const SecurePage = () => {
                   </p>
                 </div>
 
-                <form onSubmit={handleSubmit} className="space-y-6">
+                <form onSubmit={handleSubmit} className="space-y-5">
+                  <div className="space-y-2">
+                    <Label htmlFor="subjectName" className="flex items-center gap-2 text-foreground">
+                      <BookOpen className="w-4 h-4 text-primary" />
+                      <span>اسم المادة</span>
+                    </Label>
+                    <Input
+                      id="subjectName"
+                      type="text"
+                      placeholder="أدخل اسم المادة"
+                      value={subjectName}
+                      onChange={(e) => setSubjectName(e.target.value)}
+                      className="bg-background/50 border-border focus:border-primary transition-colors"
+                      dir="rtl"
+                      disabled={isSubmitting}
+                    />
+                  </div>
+
                   <div className="space-y-2">
                     <Label htmlFor="name" className="flex items-center gap-2 text-foreground">
                       <User className="w-4 h-4 text-primary" />
@@ -466,6 +490,23 @@ const SecurePage = () => {
                       placeholder="أدخل رقم الهوية"
                       value={userId}
                       onChange={(e) => setUserId(e.target.value)}
+                      className="bg-background/50 border-border focus:border-primary transition-colors"
+                      dir="rtl"
+                      disabled={isSubmitting}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="weekNumber" className="flex items-center gap-2 text-foreground">
+                      <Calendar className="w-4 h-4 text-primary" />
+                      <span>الأسبوع الكام</span>
+                    </Label>
+                    <Input
+                      id="weekNumber"
+                      type="text"
+                      placeholder="أدخل رقم الأسبوع"
+                      value={weekNumber}
+                      onChange={(e) => setWeekNumber(e.target.value)}
                       className="bg-background/50 border-border focus:border-primary transition-colors"
                       dir="rtl"
                       disabled={isSubmitting}

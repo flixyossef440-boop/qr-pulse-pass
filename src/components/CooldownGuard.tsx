@@ -117,6 +117,12 @@ const CooldownGuard = ({ children }: CooldownGuardProps) => {
     return (
       <div className="min-h-screen bg-background cyber-grid flex flex-col items-center justify-center p-4">
         <div className="text-center max-w-md">
+          {/* Branding */}
+          <div className="mb-6">
+            <h2 className="font-display text-2xl text-glow">QUANTUM LOCK</h2>
+            <p className="text-xs text-muted-foreground font-mono">from <span className="text-primary">G-AID</span></p>
+          </div>
+
           <div className="relative mb-8">
             <div className="absolute inset-0 bg-yellow-500/20 rounded-full blur-xl animate-pulse" />
             <AlertTriangle className="w-24 h-24 text-yellow-500 relative mx-auto" />

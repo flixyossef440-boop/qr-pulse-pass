@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { validateToken, storeSessionToken, hasValidSession, clearSession } from '@/lib/tokenUtils';
-import { supabase } from '@/integrations/supabase/client';
 import { ShieldCheck, ShieldX, Loader2, Lock, Home, LogOut, User, IdCard, Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -72,11 +71,19 @@ const SecurePage = () => {
     setIsSubmitting(true);
 
     try {
-      const { data, error } = await supabase.functions.invoke('send-to-telegram', {
-        body: { name: name.trim(), id: userId.trim() }
+      const response = await fetch('/api/send-to-telegram', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ name: name.trim(), id: userId.trim() }),
       });
 
-      if (error) throw error;
+      const data = await response.json();
+      
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to send data');
+      }
 
       setIsSubmitted(true);
       toast({

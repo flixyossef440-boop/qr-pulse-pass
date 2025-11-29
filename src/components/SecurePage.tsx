@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { validateToken, storeSessionToken, hasValidSession, clearSession } from '@/lib/tokenUtils';
+import { getDeviceFingerprint } from '@/lib/deviceFingerprint';
 import { ShieldCheck, ShieldX, Loader2, Lock, Home, LogOut, User, IdCard, Send, Clock, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,52 +11,6 @@ import { useToast } from '@/hooks/use-toast';
 type AccessState = 'validating' | 'granted' | 'denied' | 'expired' | 'cooldown' | 'checking';
 
 const COOLDOWN_DURATION = 30 * 60 * 1000; // 30 دقيقة
-const DEVICE_ID_KEY = 'device-unique-id';
-
-// ============= Device ID Management =============
-const generateDeviceId = (): string => {
-  const nav = window.navigator;
-  const screen = window.screen;
-  
-  const fingerprint = [
-    nav.userAgent,
-    nav.language,
-    screen.width,
-    screen.height,
-    screen.colorDepth,
-    new Date().getTimezoneOffset(),
-    nav.hardwareConcurrency || 'unknown',
-  ].join('|');
-  
-  let hash = 0;
-  for (let i = 0; i < fingerprint.length; i++) {
-    const char = fingerprint.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
-  }
-  
-  const random = Math.random().toString(36).substring(2, 15);
-  const timestamp = Date.now().toString(36);
-  
-  return `${Math.abs(hash).toString(36)}-${random}-${timestamp}`;
-};
-
-const getOrCreateDeviceId = (): string => {
-  try {
-    let deviceId = localStorage.getItem(DEVICE_ID_KEY);
-    if (!deviceId) {
-      deviceId = generateDeviceId();
-      localStorage.setItem(DEVICE_ID_KEY, deviceId);
-      console.log('[Device] New device ID created:', deviceId);
-    } else {
-      console.log('[Device] Existing device ID:', deviceId);
-    }
-    return deviceId;
-  } catch (e) {
-    console.error('[Device] localStorage error, generating temporary ID');
-    return generateDeviceId();
-  }
-};
 
 // ============= Server Cooldown Check (Vercel API) =============
 const checkServerCooldown = async (deviceId: string): Promise<{ inCooldown: boolean; remaining: number }> => {
@@ -137,8 +92,10 @@ const SecurePage = () => {
     const initializeAndCheck = async () => {
       console.log('[Init] Starting initialization...');
       
-      const id = getOrCreateDeviceId();
+      // Use FingerprintJS for accurate device identification
+      const id = await getDeviceFingerprint();
       setDeviceId(id);
+      console.log('[Init] Device fingerprint:', id);
       
       // Check server cooldown FIRST
       const { inCooldown, remaining } = await checkServerCooldown(id);

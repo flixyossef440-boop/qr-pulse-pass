@@ -12,29 +12,20 @@ type AccessState = 'validating' | 'granted' | 'denied' | 'expired' | 'cooldown';
 const COOLDOWN_DURATION = 30 * 60 * 1000; // 30 دقيقة
 const COOLDOWN_KEY = 'form-submission-cooldown';
 
-const SecurePage = () => {
-  const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
-  const { toast } = useToast();
-  
-  const [accessState, setAccessState] = useState<AccessState>('validating');
-  const [validationMessage, setValidationMessage] = useState<string>('');
-  const [cooldownRemaining, setCooldownRemaining] = useState<number>(0);
-  
-  // Form state
-  const [name, setName] = useState('');
-  const [userId, setUserId] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isSubmitted, setIsSubmitted] = useState(false);
-
-  // التحقق من فترة الانتظار
-  const checkCooldown = (): { inCooldown: boolean; remaining: number } => {
+// التحقق من فترة الانتظار - دالة ثابتة خارج المكون
+const checkCooldown = (): { inCooldown: boolean; remaining: number } => {
+  try {
     const lastSubmission = localStorage.getItem(COOLDOWN_KEY);
     if (!lastSubmission) {
       return { inCooldown: false, remaining: 0 };
     }
     
     const lastTime = parseInt(lastSubmission, 10);
+    if (isNaN(lastTime)) {
+      localStorage.removeItem(COOLDOWN_KEY);
+      return { inCooldown: false, remaining: 0 };
+    }
+    
     const elapsed = Date.now() - lastTime;
     
     if (elapsed < COOLDOWN_DURATION) {
@@ -44,7 +35,36 @@ const SecurePage = () => {
     // انتهت فترة الانتظار - حذف القيمة
     localStorage.removeItem(COOLDOWN_KEY);
     return { inCooldown: false, remaining: 0 };
-  };
+  } catch {
+    return { inCooldown: false, remaining: 0 };
+  }
+};
+
+// تحديد الحالة الأولية بناءً على الـ cooldown
+const getInitialState = (): { state: AccessState; remaining: number } => {
+  const { inCooldown, remaining } = checkCooldown();
+  if (inCooldown) {
+    return { state: 'cooldown', remaining };
+  }
+  return { state: 'validating', remaining: 0 };
+};
+
+const SecurePage = () => {
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const { toast } = useToast();
+  
+  // تحديد الحالة الأولية مباشرة - الـ cooldown يُفحص أولاً
+  const initialState = getInitialState();
+  const [accessState, setAccessState] = useState<AccessState>(initialState.state);
+  const [validationMessage, setValidationMessage] = useState<string>(initialState.state === 'cooldown' ? 'COOLDOWN_ACTIVE' : '');
+  const [cooldownRemaining, setCooldownRemaining] = useState<number>(initialState.remaining);
+  
+  // Form state
+  const [name, setName] = useState('');
+  const [userId, setUserId] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSubmitted, setIsSubmitted] = useState(false);
 
   // تحديث العد التنازلي
   useEffect(() => {
@@ -64,7 +84,13 @@ const SecurePage = () => {
   }, [accessState]);
 
   useEffect(() => {
-    // التحقق من فترة الانتظار أولاً
+    // إذا كان المستخدم في فترة انتظار، لا تفعل شيئاً
+    // الحالة تم تحديدها بالفعل في getInitialState
+    if (accessState === 'cooldown') {
+      return;
+    }
+
+    // التحقق من فترة الانتظار مرة أخرى (للتأكد)
     const { inCooldown, remaining } = checkCooldown();
     if (inCooldown) {
       setAccessState('cooldown');
@@ -90,6 +116,15 @@ const SecurePage = () => {
 
     // Simulate validation delay for effect
     const validationTimer = setTimeout(() => {
+      // تحقق أخير من الـ cooldown قبل منح الوصول
+      const cooldownCheck = checkCooldown();
+      if (cooldownCheck.inCooldown) {
+        setAccessState('cooldown');
+        setCooldownRemaining(cooldownCheck.remaining);
+        setValidationMessage('COOLDOWN_ACTIVE');
+        return;
+      }
+
       const result = validateToken(token);
       
       if (result.valid) {

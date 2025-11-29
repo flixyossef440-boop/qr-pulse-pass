@@ -1,13 +1,16 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { validateToken, storeSessionToken, hasValidSession, clearSession } from '@/lib/tokenUtils';
-import { ShieldCheck, ShieldX, Loader2, Lock, Home, LogOut, User, IdCard, Send } from 'lucide-react';
+import { ShieldCheck, ShieldX, Loader2, Lock, Home, LogOut, User, IdCard, Send, Clock, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 
-type AccessState = 'validating' | 'granted' | 'denied' | 'expired';
+type AccessState = 'validating' | 'granted' | 'denied' | 'expired' | 'cooldown';
+
+const COOLDOWN_DURATION = 30 * 60 * 1000; // 30 دقيقة
+const COOLDOWN_KEY = 'form-submission-cooldown';
 
 const SecurePage = () => {
   const [searchParams] = useSearchParams();
@@ -16,6 +19,7 @@ const SecurePage = () => {
   
   const [accessState, setAccessState] = useState<AccessState>('validating');
   const [validationMessage, setValidationMessage] = useState<string>('');
+  const [cooldownRemaining, setCooldownRemaining] = useState<number>(0);
   
   // Form state
   const [name, setName] = useState('');
@@ -23,7 +27,52 @@ const SecurePage = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
 
+  // التحقق من فترة الانتظار
+  const checkCooldown = (): { inCooldown: boolean; remaining: number } => {
+    const lastSubmission = localStorage.getItem(COOLDOWN_KEY);
+    if (!lastSubmission) {
+      return { inCooldown: false, remaining: 0 };
+    }
+    
+    const lastTime = parseInt(lastSubmission, 10);
+    const elapsed = Date.now() - lastTime;
+    
+    if (elapsed < COOLDOWN_DURATION) {
+      return { inCooldown: true, remaining: COOLDOWN_DURATION - elapsed };
+    }
+    
+    // انتهت فترة الانتظار - حذف القيمة
+    localStorage.removeItem(COOLDOWN_KEY);
+    return { inCooldown: false, remaining: 0 };
+  };
+
+  // تحديث العد التنازلي
   useEffect(() => {
+    if (accessState !== 'cooldown') return;
+    
+    const timer = setInterval(() => {
+      const { inCooldown, remaining } = checkCooldown();
+      if (!inCooldown) {
+        setAccessState('granted');
+        setCooldownRemaining(0);
+      } else {
+        setCooldownRemaining(remaining);
+      }
+    }, 1000);
+    
+    return () => clearInterval(timer);
+  }, [accessState]);
+
+  useEffect(() => {
+    // التحقق من فترة الانتظار أولاً
+    const { inCooldown, remaining } = checkCooldown();
+    if (inCooldown) {
+      setAccessState('cooldown');
+      setCooldownRemaining(remaining);
+      setValidationMessage('COOLDOWN_ACTIVE');
+      return;
+    }
+
     // Check if user already has a valid session
     if (hasValidSession()) {
       setAccessState('granted');
@@ -59,6 +108,17 @@ const SecurePage = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    // التحقق مرة أخرى من فترة الانتظار
+    const { inCooldown } = checkCooldown();
+    if (inCooldown) {
+      toast({
+        title: "غير مسموح",
+        description: "يجب الانتظار قبل إرسال بيانات جديدة",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     if (!name.trim() || !userId.trim()) {
       toast({
         title: "خطأ",
@@ -89,6 +149,9 @@ const SecurePage = () => {
         throw new Error(errorMessage);
       }
 
+      // حفظ وقت الإرسال لفترة الانتظار
+      localStorage.setItem(COOLDOWN_KEY, Date.now().toString());
+      
       setIsSubmitted(true);
       toast({
         title: "تم بنجاح",
@@ -118,6 +181,14 @@ const SecurePage = () => {
     navigate('/');
   };
 
+  // تحويل الوقت المتبقي لصيغة مقروءة
+  const formatRemainingTime = (ms: number): string => {
+    const totalSeconds = Math.ceil(ms / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
+
   // Validating state
   if (accessState === 'validating') {
     return (
@@ -134,6 +205,65 @@ const SecurePage = () => {
             <p className="animate-pulse delay-200">DECRYPTING ACCESS KEY...</p>
           </div>
         </div>
+      </div>
+    );
+  }
+
+  // Cooldown state - فترة الانتظار
+  if (accessState === 'cooldown') {
+    return (
+      <div className="min-h-screen bg-background cyber-grid flex flex-col items-center justify-center p-4">
+        <div className="text-center max-w-md">
+          <div className="relative mb-8">
+            <div className="absolute inset-0 bg-yellow-500/20 rounded-full blur-xl animate-pulse" />
+            <AlertTriangle className="w-20 h-20 text-yellow-500 relative mx-auto" />
+          </div>
+          
+          <h1 className="font-display text-3xl text-yellow-500 mb-4">
+            فترة انتظار
+          </h1>
+          
+          <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-6 mb-6">
+            <div className="flex items-center justify-center gap-2 mb-4">
+              <Clock className="w-6 h-6 text-yellow-500" />
+              <span className="font-display text-4xl text-yellow-500">
+                {formatRemainingTime(cooldownRemaining)}
+              </span>
+            </div>
+            <p className="text-sm text-muted-foreground" dir="rtl">
+              لقد قمت بإرسال بيانات مؤخراً. يرجى الانتظار حتى انتهاء فترة الانتظار (30 دقيقة) قبل إرسال بيانات جديدة.
+            </p>
+          </div>
+
+          {/* Progress bar */}
+          <div className="w-full bg-muted rounded-full h-2 mb-6 overflow-hidden">
+            <div 
+              className="h-full bg-gradient-to-r from-yellow-500 to-yellow-400 transition-all duration-1000"
+              style={{ width: `${((COOLDOWN_DURATION - cooldownRemaining) / COOLDOWN_DURATION) * 100}%` }}
+            />
+          </div>
+
+          <Button 
+            onClick={handleRetry}
+            className="gap-2"
+            variant="outline"
+          >
+            <Home className="w-4 h-4" />
+            العودة للرئيسية
+          </Button>
+        </div>
+
+        {/* Footer Status */}
+        <footer className="fixed bottom-0 left-0 right-0 bg-muted/80 backdrop-blur border-t border-border py-2 px-4">
+          <div className="flex items-center justify-center gap-4 text-xs font-mono">
+            <span className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" />
+              COOLDOWN ACTIVE
+            </span>
+            <span className="text-muted-foreground">|</span>
+            <span className="text-muted-foreground">RATE LIMITED</span>
+          </div>
+        </footer>
       </div>
     );
   }
@@ -215,6 +345,12 @@ const SecurePage = () => {
             <p className="text-muted-foreground mb-6" dir="rtl">
               تم إرسال بياناتك بنجاح. شكراً لك.
             </p>
+            <div className="bg-muted/50 border border-border rounded-lg p-4 mb-6">
+              <p className="text-sm text-muted-foreground" dir="rtl">
+                <Clock className="w-4 h-4 inline-block ml-1" />
+                يمكنك إرسال بيانات جديدة بعد 30 دقيقة
+              </p>
+            </div>
             <Button onClick={handleLogout} variant="outline" className="gap-2">
               <Home className="w-4 h-4" />
               العودة للرئيسية

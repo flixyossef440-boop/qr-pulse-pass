@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { validateToken, storeSessionToken, hasValidSession, clearSession } from '@/lib/tokenUtils';
 import { ShieldCheck, ShieldX, Loader2, Lock, Home, LogOut, User, IdCard, Send, Clock, AlertTriangle } from 'lucide-react';
@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
 
 type AccessState = 'validating' | 'granted' | 'denied' | 'expired' | 'cooldown' | 'checking';
 
@@ -15,7 +14,6 @@ const DEVICE_ID_KEY = 'device-unique-id';
 
 // ============= Device ID Management =============
 const generateDeviceId = (): string => {
-  // Generate a unique ID based on browser fingerprint + random
   const nav = window.navigator;
   const screen = window.screen;
   
@@ -29,7 +27,6 @@ const generateDeviceId = (): string => {
     nav.hardwareConcurrency || 'unknown',
   ].join('|');
   
-  // Simple hash function
   let hash = 0;
   for (let i = 0; i < fingerprint.length; i++) {
     const char = fingerprint.charCodeAt(i);
@@ -37,7 +34,6 @@ const generateDeviceId = (): string => {
     hash = hash & hash;
   }
   
-  // Add random component for uniqueness + timestamp
   const random = Math.random().toString(36).substring(2, 15);
   const timestamp = Date.now().toString(36);
   
@@ -56,23 +52,26 @@ const getOrCreateDeviceId = (): string => {
     }
     return deviceId;
   } catch (e) {
-    // Fallback if localStorage is not available
     console.error('[Device] localStorage error, generating temporary ID');
     return generateDeviceId();
   }
 };
 
-// ============= Server Cooldown Check =============
+// ============= Server Cooldown Check (Vercel API) =============
 const checkServerCooldown = async (deviceId: string): Promise<{ inCooldown: boolean; remaining: number }> => {
   try {
     console.log('[Server] Checking cooldown for device:', deviceId);
     
-    const { data, error } = await supabase.functions.invoke('check-device-cooldown', {
-      body: { device_id: deviceId, action: 'check' }
+    const response = await fetch('/api/check-device-cooldown', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ device_id: deviceId, action: 'check' })
     });
 
-    if (error) {
-      console.error('[Server] Cooldown check error:', error);
+    const data = await response.json();
+    
+    if (!response.ok) {
+      console.error('[Server] Cooldown check error:', data);
       return { inCooldown: false, remaining: 0 };
     }
 
@@ -91,17 +90,21 @@ const recordServerSubmission = async (deviceId: string, name: string, userId: st
   try {
     console.log('[Server] Recording submission for device:', deviceId);
     
-    const { data, error } = await supabase.functions.invoke('check-device-cooldown', {
-      body: { 
+    const response = await fetch('/api/check-device-cooldown', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
         device_id: deviceId, 
         action: 'submit',
         name,
         user_id_field: userId
-      }
+      })
     });
 
-    if (error) {
-      console.error('[Server] Submit error:', error);
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error('[Server] Submit error:', data);
       return false;
     }
 
@@ -134,7 +137,6 @@ const SecurePage = () => {
     const initializeAndCheck = async () => {
       console.log('[Init] Starting initialization...');
       
-      // Get or create device ID
       const id = getOrCreateDeviceId();
       setDeviceId(id);
       
@@ -202,7 +204,6 @@ const SecurePage = () => {
     if (accessState !== 'cooldown') return;
     
     const timer = setInterval(async () => {
-      // Re-check server cooldown
       const { inCooldown, remaining } = await checkServerCooldown(deviceId);
       if (!inCooldown) {
         setAccessState('granted');
@@ -210,9 +211,8 @@ const SecurePage = () => {
       } else {
         setCooldownRemaining(remaining);
       }
-    }, 5000); // Check every 5 seconds
+    }, 5000);
     
-    // Also update locally every second for smoother countdown
     const localTimer = setInterval(() => {
       setCooldownRemaining(prev => Math.max(0, prev - 1000));
     }, 1000);
@@ -261,9 +261,7 @@ const SecurePage = () => {
       // Send to Telegram
       const response = await fetch('/api/send-to-telegram', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: name.trim(), id: userId.trim() }),
       });
 
@@ -290,7 +288,7 @@ const SecurePage = () => {
       toast({
         title: "خطأ",
         description: errorMessage.includes('configuration') 
-          ? "خطأ في إعدادات الخادم - تأكد من إضافة متغيرات البيئة في Vercel"
+          ? "خطأ في إعدادات الخادم"
           : "حدث خطأ أثناء إرسال البيانات",
         variant: "destructive",
       });
@@ -308,7 +306,6 @@ const SecurePage = () => {
     navigate('/');
   };
 
-  // تحويل الوقت المتبقي لصيغة مقروءة
   const formatRemainingTime = (ms: number): string => {
     const totalSeconds = Math.ceil(ms / 1000);
     const minutes = Math.floor(totalSeconds / 60);
@@ -336,7 +333,7 @@ const SecurePage = () => {
     );
   }
 
-  // Cooldown state - فترة الانتظار
+  // Cooldown state
   if (accessState === 'cooldown') {
     return (
       <div className="min-h-screen bg-background cyber-grid flex flex-col items-center justify-center p-4">
@@ -346,9 +343,7 @@ const SecurePage = () => {
             <AlertTriangle className="w-20 h-20 text-yellow-500 relative mx-auto" />
           </div>
           
-          <h1 className="font-display text-3xl text-yellow-500 mb-4">
-            فترة انتظار
-          </h1>
+          <h1 className="font-display text-3xl text-yellow-500 mb-4">فترة انتظار</h1>
           
           <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-6 mb-6">
             <div className="flex items-center justify-center gap-2 mb-4">
@@ -358,11 +353,10 @@ const SecurePage = () => {
               </span>
             </div>
             <p className="text-sm text-muted-foreground" dir="rtl">
-              لقد قمت بإرسال بيانات مؤخراً من هذا الجهاز. يرجى الانتظار حتى انتهاء فترة الانتظار (30 دقيقة) قبل إرسال بيانات جديدة.
+              لقد قمت بإرسال بيانات مؤخراً من هذا الجهاز. يرجى الانتظار حتى انتهاء فترة الانتظار (30 دقيقة).
             </p>
           </div>
 
-          {/* Progress bar */}
           <div className="w-full bg-muted rounded-full h-2 mb-6 overflow-hidden">
             <div 
               className="h-full bg-gradient-to-r from-yellow-500 to-yellow-400 transition-all duration-1000"
@@ -370,17 +364,12 @@ const SecurePage = () => {
             />
           </div>
 
-          <Button 
-            onClick={handleRetry}
-            className="gap-2"
-            variant="outline"
-          >
+          <Button onClick={handleRetry} className="gap-2" variant="outline">
             <Home className="w-4 h-4" />
             العودة للرئيسية
           </Button>
         </div>
 
-        {/* Footer Status */}
         <footer className="fixed bottom-0 left-0 right-0 bg-muted/80 backdrop-blur border-t border-border py-2 px-4">
           <div className="flex items-center justify-center gap-4 text-xs font-mono">
             <span className="flex items-center gap-1">
@@ -420,11 +409,7 @@ const SecurePage = () => {
             </p>
           </div>
 
-          <Button 
-            onClick={handleRetry}
-            className="gap-2"
-            variant="outline"
-          >
+          <Button onClick={handleRetry} className="gap-2" variant="outline">
             <Home className="w-4 h-4" />
             العودة للمسح
           </Button>
@@ -436,7 +421,6 @@ const SecurePage = () => {
   // Granted state - Form
   return (
     <div className="min-h-screen bg-background cyber-grid">
-      {/* Header */}
       <header className="bg-card/80 backdrop-blur border-b border-border sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -459,10 +443,8 @@ const SecurePage = () => {
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="container mx-auto px-4 py-8 flex items-center justify-center min-h-[calc(100vh-80px)]">
         {isSubmitted ? (
-          // Success state
           <div className="text-center max-w-md">
             <div className="relative mb-8">
               <div className="absolute inset-0 bg-cyber-green/30 rounded-full blur-xl animate-pulse" />
@@ -484,9 +466,7 @@ const SecurePage = () => {
             </Button>
           </div>
         ) : (
-          // Form
           <div className="w-full max-w-md">
-            {/* Form Card */}
             <div className="relative">
               <div className="absolute inset-0 bg-primary/5 rounded-2xl blur-xl" />
               <div className="relative bg-card/80 backdrop-blur border border-border rounded-2xl p-8">
@@ -501,7 +481,6 @@ const SecurePage = () => {
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-6">
-                  {/* Name Field */}
                   <div className="space-y-2">
                     <Label htmlFor="name" className="flex items-center gap-2 text-foreground">
                       <User className="w-4 h-4 text-primary" />
@@ -519,7 +498,6 @@ const SecurePage = () => {
                     />
                   </div>
 
-                  {/* ID Field */}
                   <div className="space-y-2">
                     <Label htmlFor="userId" className="flex items-center gap-2 text-foreground">
                       <IdCard className="w-4 h-4 text-primary" />
@@ -537,7 +515,6 @@ const SecurePage = () => {
                     />
                   </div>
 
-                  {/* Submit Button */}
                   <Button
                     type="submit"
                     className="w-full gap-2 bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 transition-all duration-300"
@@ -557,7 +534,6 @@ const SecurePage = () => {
                   </Button>
                 </form>
 
-                {/* Security Notice */}
                 <div className="mt-6 p-3 bg-muted/50 rounded-lg border border-border">
                   <p className="text-xs text-muted-foreground text-center" dir="rtl">
                     🔒 بياناتك محمية ومشفرة
@@ -569,7 +545,6 @@ const SecurePage = () => {
         )}
       </main>
 
-      {/* Footer Status */}
       <footer className="fixed bottom-0 left-0 right-0 bg-muted/80 backdrop-blur border-t border-border py-2 px-4">
         <div className="flex items-center justify-center gap-4 text-xs font-mono">
           <span className="flex items-center gap-1">

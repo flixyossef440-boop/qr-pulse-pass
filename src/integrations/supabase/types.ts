@@ -14,13 +14,36 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      device_submissions: {
+        Row: {
+          device_id: string
+          id: string
+          name: string | null
+          submitted_at: string
+          user_id_field: string | null
+        }
+        Insert: {
+          device_id: string
+          id?: string
+          name?: string | null
+          submitted_at?: string
+          user_id_field?: string | null
+        }
+        Update: {
+          device_id?: string
+          id?: string
+          name?: string | null
+          submitted_at?: string
+          user_id_field?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      cleanup_old_submissions: { Args: never; Returns: undefined }
     }
     Enums: {
       [_ in never]: never

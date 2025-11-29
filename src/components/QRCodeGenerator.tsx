@@ -102,7 +102,14 @@ const QRCodeGenerator = () => {
             <h1 className="font-display text-4xl md:text-5xl font-bold text-glow-strong tracking-wider">
               QUANTUM LOCK
             </h1>
-            <span className="text-sm text-muted-foreground font-mono mt-1">from <span className="text-primary font-semibold">G-AID</span></span>
+            <div className="flex items-center gap-2 mt-2">
+              <span className="text-xs text-muted-foreground font-mono">from</span>
+              <div className="flex items-center gap-0.5 bg-gradient-to-r from-primary/20 to-primary/10 px-3 py-1 rounded-full border border-primary/30">
+                <span className="font-display text-lg font-bold text-primary tracking-wider">G</span>
+                <span className="text-primary/60">-</span>
+                <span className="font-display text-lg font-bold bg-gradient-to-r from-primary to-cyan-400 bg-clip-text text-transparent tracking-wider">AID</span>
+              </div>
+            </div>
           </div>
           <Lock className="w-10 h-10 text-primary animate-pulse" />
         </div>

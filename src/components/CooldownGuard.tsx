@@ -120,7 +120,14 @@ const CooldownGuard = ({ children }: CooldownGuardProps) => {
           {/* Branding */}
           <div className="mb-6">
             <h2 className="font-display text-2xl text-glow">QUANTUM LOCK</h2>
-            <p className="text-xs text-muted-foreground font-mono">from <span className="text-primary">G-AID</span></p>
+            <div className="flex items-center justify-center gap-1.5 mt-2">
+              <span className="text-xs text-muted-foreground font-mono">from</span>
+              <div className="flex items-center gap-0.5 bg-primary/10 px-2 py-0.5 rounded-full border border-primary/20">
+                <span className="font-display text-sm font-bold text-primary">G</span>
+                <span className="text-primary/50 text-sm">-</span>
+                <span className="font-display text-sm font-bold bg-gradient-to-r from-primary to-cyan-400 bg-clip-text text-transparent">AID</span>
+              </div>
+            </div>
           </div>
 
           <div className="relative mb-8">

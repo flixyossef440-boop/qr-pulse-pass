@@ -81,8 +81,12 @@ const SecurePage = () => {
 
       const data = await response.json();
       
+      console.log('API Response:', { status: response.status, data });
+      
       if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Failed to send data');
+        const errorMessage = data.error || 'Failed to send data';
+        console.error('API Error:', errorMessage);
+        throw new Error(errorMessage);
       }
 
       setIsSubmitted(true);
@@ -92,9 +96,12 @@ const SecurePage = () => {
       });
     } catch (error) {
       console.error('Error submitting form:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       toast({
         title: "خطأ",
-        description: "حدث خطأ أثناء إرسال البيانات",
+        description: errorMessage.includes('configuration') 
+          ? "خطأ في إعدادات الخادم - تأكد من إضافة متغيرات البيئة في Vercel"
+          : "حدث خطأ أثناء إرسال البيانات",
         variant: "destructive",
       });
     } finally {

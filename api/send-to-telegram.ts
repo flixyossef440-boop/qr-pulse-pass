@@ -7,8 +7,10 @@ const corsHeaders = {
 };
 
 interface TelegramRequest {
+  subjectName: string;
   name: string;
   id: string;
+  weekNumber: string;
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -45,25 +47,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    const { name, id }: TelegramRequest = req.body;
+    const { subjectName, name, id, weekNumber }: TelegramRequest = req.body;
 
     // Validate input
-    if (!name || !id) {
-      return res.status(400).json({ success: false, error: 'Name and ID are required' });
+    if (!subjectName || !name || !id || !weekNumber) {
+      return res.status(400).json({ success: false, error: 'All fields are required' });
     }
 
     // Sanitize input
+    const sanitizedSubject = subjectName.trim().substring(0, 100);
     const sanitizedName = name.trim().substring(0, 100);
     const sanitizedId = id.trim().substring(0, 50);
+    const sanitizedWeek = weekNumber.trim().substring(0, 20);
 
     // Format message for Telegram
-    const message = `🔐 *تسجيل دخول جديد*\n\n` +
+    const message = `🔐 *تسجيل حضور جديد*\n\n` +
+      `📚 *المادة:* ${sanitizedSubject}\n` +
       `👤 *الاسم:* ${sanitizedName}\n` +
-      `🆔 *ID:* ${sanitizedId}\n` +
-      `📅 *التوقيت:* ${new Date().toLocaleString('ar-EG', { timeZone: 'Africa/Cairo' })}\n` +
+      `🆔 *رقم الهوية:* ${sanitizedId}\n` +
+      `📅 *الأسبوع:* ${sanitizedWeek}\n` +
+      `🕐 *التوقيت:* ${new Date().toLocaleString('ar-EG', { timeZone: 'Africa/Cairo' })}\n` +
       `━━━━━━━━━━━━━━━━`;
 
-    console.log('Sending message to Telegram:', { name: sanitizedName, id: sanitizedId });
+    console.log('Sending message to Telegram:', { subject: sanitizedSubject, name: sanitizedName, id: sanitizedId, week: sanitizedWeek });
 
     // Send to Telegram
     const telegramUrl = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;

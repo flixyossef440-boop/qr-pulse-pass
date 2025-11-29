@@ -11,41 +11,108 @@ type AccessState = 'validating' | 'granted' | 'denied' | 'expired' | 'cooldown';
 
 const COOLDOWN_DURATION = 30 * 60 * 1000; // 30 دقيقة
 const COOLDOWN_KEY = 'form-submission-cooldown';
+const COOKIE_NAME = 'form_cooldown';
 
-// التحقق من فترة الانتظار - دالة ثابتة خارج المكون
-const checkCooldown = (): { inCooldown: boolean; remaining: number } => {
+// ============= Cookie Utilities =============
+const setCookie = (name: string, value: string, minutes: number): void => {
+  const expires = new Date();
+  expires.setTime(expires.getTime() + minutes * 60 * 1000);
+  document.cookie = `${name}=${value};expires=${expires.toUTCString()};path=/;SameSite=Strict`;
+  console.log('[Cooldown] Cookie set:', name, value);
+};
+
+const getCookie = (name: string): string | null => {
+  const nameEQ = name + "=";
+  const ca = document.cookie.split(';');
+  for (let i = 0; i < ca.length; i++) {
+    let c = ca[i];
+    while (c.charAt(0) === ' ') c = c.substring(1, c.length);
+    if (c.indexOf(nameEQ) === 0) {
+      return c.substring(nameEQ.length, c.length);
+    }
+  }
+  return null;
+};
+
+const deleteCookie = (name: string): void => {
+  document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`;
+};
+
+// ============= Cooldown Management =============
+// حفظ الـ cooldown في localStorage و Cookie معاً
+const setCooldownTimestamp = (): void => {
+  const timestamp = Date.now().toString();
+  
+  // حفظ في localStorage
   try {
-    const lastSubmission = localStorage.getItem(COOLDOWN_KEY);
-    if (!lastSubmission) {
-      return { inCooldown: false, remaining: 0 };
-    }
-    
-    const lastTime = parseInt(lastSubmission, 10);
-    if (isNaN(lastTime)) {
-      localStorage.removeItem(COOLDOWN_KEY);
-      return { inCooldown: false, remaining: 0 };
-    }
-    
-    const elapsed = Date.now() - lastTime;
-    
-    if (elapsed < COOLDOWN_DURATION) {
-      return { inCooldown: true, remaining: COOLDOWN_DURATION - elapsed };
-    }
-    
-    // انتهت فترة الانتظار - حذف القيمة
-    localStorage.removeItem(COOLDOWN_KEY);
-    return { inCooldown: false, remaining: 0 };
-  } catch {
+    localStorage.setItem(COOLDOWN_KEY, timestamp);
+    console.log('[Cooldown] localStorage set:', timestamp);
+  } catch (e) {
+    console.error('[Cooldown] localStorage error:', e);
+  }
+  
+  // حفظ في Cookie (30 دقيقة)
+  setCookie(COOKIE_NAME, timestamp, 30);
+};
+
+// التحقق من فترة الانتظار - من localStorage أو Cookie
+const checkCooldown = (): { inCooldown: boolean; remaining: number } => {
+  console.log('[Cooldown] Checking cooldown...');
+  
+  let lastSubmission: string | null = null;
+  
+  // محاولة القراءة من localStorage أولاً
+  try {
+    lastSubmission = localStorage.getItem(COOLDOWN_KEY);
+    console.log('[Cooldown] localStorage value:', lastSubmission);
+  } catch (e) {
+    console.error('[Cooldown] localStorage read error:', e);
+  }
+  
+  // إذا لم نجد في localStorage، نحاول من Cookie
+  if (!lastSubmission) {
+    lastSubmission = getCookie(COOKIE_NAME);
+    console.log('[Cooldown] Cookie value:', lastSubmission);
+  }
+  
+  if (!lastSubmission) {
+    console.log('[Cooldown] No cooldown found');
     return { inCooldown: false, remaining: 0 };
   }
+  
+  const lastTime = parseInt(lastSubmission, 10);
+  if (isNaN(lastTime)) {
+    console.log('[Cooldown] Invalid timestamp, clearing');
+    try { localStorage.removeItem(COOLDOWN_KEY); } catch {}
+    deleteCookie(COOKIE_NAME);
+    return { inCooldown: false, remaining: 0 };
+  }
+  
+  const elapsed = Date.now() - lastTime;
+  const remaining = COOLDOWN_DURATION - elapsed;
+  
+  console.log('[Cooldown] Elapsed:', elapsed, 'Remaining:', remaining);
+  
+  if (elapsed < COOLDOWN_DURATION) {
+    console.log('[Cooldown] ACTIVE - user must wait');
+    return { inCooldown: true, remaining };
+  }
+  
+  // انتهت فترة الانتظار - حذف القيم
+  console.log('[Cooldown] Expired, clearing');
+  try { localStorage.removeItem(COOLDOWN_KEY); } catch {}
+  deleteCookie(COOKIE_NAME);
+  return { inCooldown: false, remaining: 0 };
 };
 
 // تحديد الحالة الأولية بناءً على الـ cooldown
 const getInitialState = (): { state: AccessState; remaining: number } => {
   const { inCooldown, remaining } = checkCooldown();
   if (inCooldown) {
+    console.log('[Cooldown] Initial state: COOLDOWN');
     return { state: 'cooldown', remaining };
   }
+  console.log('[Cooldown] Initial state: validating');
   return { state: 'validating', remaining: 0 };
 };
 
@@ -184,8 +251,9 @@ const SecurePage = () => {
         throw new Error(errorMessage);
       }
 
-      // حفظ وقت الإرسال لفترة الانتظار
-      localStorage.setItem(COOLDOWN_KEY, Date.now().toString());
+      // حفظ وقت الإرسال لفترة الانتظار (localStorage + Cookie)
+      setCooldownTimestamp();
+      console.log('[Cooldown] Submission successful, cooldown activated');
       
       setIsSubmitted(true);
       toast({

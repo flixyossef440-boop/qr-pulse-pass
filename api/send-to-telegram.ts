@@ -30,16 +30,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
     const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
+    console.log('Environment check:', {
+      hasBotToken: !!TELEGRAM_BOT_TOKEN,
+      hasChatId: !!TELEGRAM_CHAT_ID,
+      botTokenLength: TELEGRAM_BOT_TOKEN?.length || 0,
+      chatIdLength: TELEGRAM_CHAT_ID?.length || 0,
+    });
+
     if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
-      console.error('Missing Telegram configuration');
-      throw new Error('Telegram configuration is missing');
+      console.error('Missing Telegram configuration - BOT_TOKEN:', !!TELEGRAM_BOT_TOKEN, 'CHAT_ID:', !!TELEGRAM_CHAT_ID);
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Telegram configuration is missing. Please add TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID to Vercel environment variables.' 
+      });
     }
 
     const { name, id }: TelegramRequest = req.body;
 
     // Validate input
     if (!name || !id) {
-      throw new Error('Name and ID are required');
+      return res.status(400).json({ success: false, error: 'Name and ID are required' });
     }
 
     // Sanitize input
@@ -73,7 +83,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     console.log('Telegram API response:', telegramResult);
 
     if (!telegramResult.ok) {
-      throw new Error(`Telegram API error: ${telegramResult.description}`);
+      console.error('Telegram API error:', telegramResult);
+      return res.status(500).json({ 
+        success: false, 
+        error: `Telegram API error: ${telegramResult.description || 'Unknown error'}` 
+      });
     }
 
     return res.status(200).json({ success: true, message: 'Data sent successfully' });

@@ -1,12 +1,33 @@
 import { useState, useEffect, useCallback } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { generateToken } from '@/lib/tokenUtils';
-import { Shield, RefreshCw, Clock, Lock } from 'lucide-react';
+import { Shield, RefreshCw, Clock, Lock, LogOut } from 'lucide-react';
+import PasswordGate from './PasswordGate';
+import { Button } from '@/components/ui/button';
 
 const QRCodeGenerator = () => {
   const [token, setToken] = useState<string>('');
   const [timeLeft, setTimeLeft] = useState<number>(5);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+
+  // التحقق من الجلسة عند التحميل
+  useEffect(() => {
+    const auth = sessionStorage.getItem('admin-auth');
+    if (auth) {
+      try {
+        const timestamp = parseInt(atob(auth));
+        // الجلسة صالحة لمدة ساعة
+        if (Date.now() - timestamp < 3600000) {
+          setIsAuthenticated(true);
+        } else {
+          sessionStorage.removeItem('admin-auth');
+        }
+      } catch {
+        sessionStorage.removeItem('admin-auth');
+      }
+    }
+  }, []);
 
   const generateNewQR = useCallback(() => {
     setIsGenerating(true);
@@ -19,6 +40,8 @@ const QRCodeGenerator = () => {
 
   // Generate new QR code every 5 seconds
   useEffect(() => {
+    if (!isAuthenticated) return;
+    
     generateNewQR();
     
     const interval = setInterval(() => {
@@ -26,10 +49,12 @@ const QRCodeGenerator = () => {
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [generateNewQR]);
+  }, [generateNewQR, isAuthenticated]);
 
   // Countdown timer
   useEffect(() => {
+    if (!isAuthenticated) return;
+    
     const timer = setInterval(() => {
       setTimeLeft((prev) => {
         if (prev <= 0) return 5;
@@ -38,7 +63,17 @@ const QRCodeGenerator = () => {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, []);
+  }, [isAuthenticated]);
+
+  const handleLogout = () => {
+    sessionStorage.removeItem('admin-auth');
+    setIsAuthenticated(false);
+  };
+
+  // عرض شاشة كلمة المرور إذا لم يتم التحقق
+  if (!isAuthenticated) {
+    return <PasswordGate onSuccess={() => setIsAuthenticated(true)} />;
+  }
 
   const qrUrl = `${window.location.origin}/secure?token=${encodeURIComponent(token)}`;
 
@@ -48,6 +83,17 @@ const QRCodeGenerator = () => {
       <div className="absolute inset-0 bg-gradient-to-b from-cyber-green/5 to-transparent pointer-events-none" />
       <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-cyber-green to-transparent opacity-50" />
       
+      {/* Logout Button */}
+      <Button
+        onClick={handleLogout}
+        variant="ghost"
+        size="sm"
+        className="absolute top-4 right-4 z-30 text-muted-foreground hover:text-destructive"
+      >
+        <LogOut className="w-4 h-4 mr-2" />
+        خروج
+      </Button>
+
       {/* Header */}
       <div className="text-center mb-8 z-10">
         <div className="flex items-center justify-center gap-3 mb-4">

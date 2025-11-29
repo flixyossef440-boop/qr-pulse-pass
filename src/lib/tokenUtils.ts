@@ -26,7 +26,7 @@ export const validateToken = (token: string): { valid: boolean; timeLeft: number
     
     const now = Date.now();
     const age = now - timestamp;
-    const maxAge = 5000; // 5 seconds in milliseconds
+    const maxAge = 10000; // 10 seconds to allow for network latency and scanning time
     const timeLeft = Math.max(0, maxAge - age);
     
     if (age > maxAge) {

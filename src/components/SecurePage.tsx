@@ -391,7 +391,14 @@ const SecurePage = () => {
             <ShieldCheck className="w-8 h-8 text-primary" />
             <div>
               <h1 className="font-display text-xl text-glow">QUANTUM LOCK</h1>
-              <p className="text-xs text-muted-foreground font-mono">from <span className="text-primary">G-AID</span></p>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-muted-foreground font-mono">from</span>
+                <div className="flex items-center gap-0.5 bg-primary/10 px-2 py-0.5 rounded-full border border-primary/20">
+                  <span className="font-display text-xs font-bold text-primary">G</span>
+                  <span className="text-primary/50 text-xs">-</span>
+                  <span className="font-display text-xs font-bold bg-gradient-to-r from-primary to-cyan-400 bg-clip-text text-transparent">AID</span>
+                </div>
+              </div>
             </div>
           </div>
           

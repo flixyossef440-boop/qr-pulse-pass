@@ -1,50 +1,9 @@
 import { useState, useEffect, ReactNode } from 'react';
 import { AlertTriangle, Clock, Home } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { getDeviceFingerprint } from '@/lib/deviceFingerprint';
 
 const COOLDOWN_DURATION = 30 * 60 * 1000; // 30 دقيقة
-const DEVICE_ID_KEY = 'device-unique-id';
-
-// Generate device fingerprint
-const generateDeviceId = (): string => {
-  const nav = window.navigator;
-  const screen = window.screen;
-  
-  const fingerprint = [
-    nav.userAgent,
-    nav.language,
-    screen.width,
-    screen.height,
-    screen.colorDepth,
-    new Date().getTimezoneOffset(),
-    nav.hardwareConcurrency || 'unknown',
-  ].join('|');
-  
-  let hash = 0;
-  for (let i = 0; i < fingerprint.length; i++) {
-    const char = fingerprint.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
-  }
-  
-  const random = Math.random().toString(36).substring(2, 15);
-  const timestamp = Date.now().toString(36);
-  
-  return `${Math.abs(hash).toString(36)}-${random}-${timestamp}`;
-};
-
-const getOrCreateDeviceId = (): string => {
-  try {
-    let deviceId = localStorage.getItem(DEVICE_ID_KEY);
-    if (!deviceId) {
-      deviceId = generateDeviceId();
-      localStorage.setItem(DEVICE_ID_KEY, deviceId);
-    }
-    return deviceId;
-  } catch {
-    return generateDeviceId();
-  }
-};
 
 // Check server cooldown
 const checkServerCooldown = async (deviceId: string): Promise<{ inCooldown: boolean; remaining: number }> => {
@@ -80,11 +39,14 @@ const CooldownGuard = ({ children }: CooldownGuardProps) => {
   const [cooldownRemaining, setCooldownRemaining] = useState(0);
   const [deviceId, setDeviceId] = useState('');
 
-  // Check cooldown on mount
+  // Check cooldown on mount using FingerprintJS
   useEffect(() => {
     const checkCooldown = async () => {
-      const id = getOrCreateDeviceId();
+      // Get device fingerprint using FingerprintJS
+      const id = await getDeviceFingerprint();
       setDeviceId(id);
+      
+      console.log('[CooldownGuard] Device fingerprint:', id);
       
       const { inCooldown: isCooling, remaining } = await checkServerCooldown(id);
       

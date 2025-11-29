@@ -105,33 +105,43 @@ const checkCooldown = (): { inCooldown: boolean; remaining: number } => {
   return { inCooldown: false, remaining: 0 };
 };
 
-// تحديد الحالة الأولية بناءً على الـ cooldown
-const getInitialState = (): { state: AccessState; remaining: number } => {
-  const { inCooldown, remaining } = checkCooldown();
-  if (inCooldown) {
-    console.log('[Cooldown] Initial state: COOLDOWN');
-    return { state: 'cooldown', remaining };
-  }
-  console.log('[Cooldown] Initial state: validating');
-  return { state: 'validating', remaining: 0 };
-};
+// تم حذف getInitialState - الفحص يتم مباشرة في الـ component
 
 const SecurePage = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { toast } = useToast();
   
-  // تحديد الحالة الأولية مباشرة - الـ cooldown يُفحص أولاً
-  const initialState = getInitialState();
-  const [accessState, setAccessState] = useState<AccessState>(initialState.state);
-  const [validationMessage, setValidationMessage] = useState<string>(initialState.state === 'cooldown' ? 'COOLDOWN_ACTIVE' : '');
-  const [cooldownRemaining, setCooldownRemaining] = useState<number>(initialState.remaining);
+  // فحص الـ cooldown فوراً عند كل render - هذا يضمن عدم تجاوزه أبداً
+  const cooldownCheck = checkCooldown();
+  const isInCooldown = cooldownCheck.inCooldown;
+  
+  // تحديد الحالة الأولية
+  const [accessState, setAccessState] = useState<AccessState>(() => {
+    const { inCooldown } = checkCooldown();
+    return inCooldown ? 'cooldown' : 'validating';
+  });
+  const [validationMessage, setValidationMessage] = useState<string>(() => {
+    const { inCooldown } = checkCooldown();
+    return inCooldown ? 'COOLDOWN_ACTIVE' : '';
+  });
+  const [cooldownRemaining, setCooldownRemaining] = useState<number>(cooldownCheck.remaining);
   
   // Form state
   const [name, setName] = useState('');
   const [userId, setUserId] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  
+  // تحديث الحالة فوراً إذا كان هناك cooldown نشط (للتعامل مع تغيير URL)
+  useEffect(() => {
+    if (isInCooldown && accessState !== 'cooldown') {
+      console.log('[Cooldown] FORCING cooldown state on URL change');
+      setAccessState('cooldown');
+      setValidationMessage('COOLDOWN_ACTIVE');
+      setCooldownRemaining(cooldownCheck.remaining);
+    }
+  }, [isInCooldown, accessState, cooldownCheck.remaining]);
 
   // تحديث العد التنازلي
   useEffect(() => {
@@ -152,8 +162,7 @@ const SecurePage = () => {
 
   useEffect(() => {
     // إذا كان المستخدم في فترة انتظار، لا تفعل شيئاً
-    // الحالة تم تحديدها بالفعل في getInitialState
-    if (accessState === 'cooldown') {
+    if (accessState === 'cooldown' || isInCooldown) {
       return;
     }
 
@@ -205,7 +214,7 @@ const SecurePage = () => {
     }, 1500);
 
     return () => clearTimeout(validationTimer);
-  }, [searchParams]);
+  }, [searchParams, isInCooldown, accessState]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

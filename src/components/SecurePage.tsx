@@ -57,20 +57,14 @@ const getOrCreateDeviceId = (): string => {
   }
 };
 
-// ============= Server Cooldown Check (Supabase Edge Function) =============
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-
+// ============= Server Cooldown Check (Vercel API) =============
 const checkServerCooldown = async (deviceId: string): Promise<{ inCooldown: boolean; remaining: number }> => {
   try {
     console.log('[Server] Checking cooldown for device:', deviceId);
     
-    const response = await fetch(`${SUPABASE_URL}/functions/v1/check-device-cooldown`, {
+    const response = await fetch('/api/check-device-cooldown', {
       method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ device_id: deviceId, action: 'check' })
     });
 
@@ -96,12 +90,9 @@ const recordServerSubmission = async (deviceId: string, name: string, userId: st
   try {
     console.log('[Server] Recording submission for device:', deviceId);
     
-    const response = await fetch(`${SUPABASE_URL}/functions/v1/check-device-cooldown`, {
+    const response = await fetch('/api/check-device-cooldown', {
       method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
         device_id: deviceId, 
         action: 'submit',
@@ -267,13 +258,10 @@ const SecurePage = () => {
         throw new Error('Failed to record submission');
       }
       
-      // Send to Telegram
-      const response = await fetch(`${SUPABASE_URL}/functions/v1/send-to-telegram`, {
+      // Send to Telegram via Vercel API
+      const response = await fetch('/api/send-to-telegram', {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: name.trim(), id: userId.trim() }),
       });
 

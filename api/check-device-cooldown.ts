@@ -33,13 +33,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseKey = process.env.SUPABASE_ANON_KEY;
 
     if (!supabaseUrl || !supabaseKey) {
-      console.error('Missing Supabase configuration');
+      console.error('Missing Supabase configuration - URL:', !!supabaseUrl, 'KEY:', !!supabaseKey);
       return res.status(500).json({ 
         success: false, 
-        error: 'Supabase configuration is missing' 
+        error: 'Supabase configuration is missing. Add SUPABASE_URL and SUPABASE_ANON_KEY to Vercel.' 
       });
     }
 

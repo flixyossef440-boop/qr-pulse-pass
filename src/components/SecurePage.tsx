@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { validateToken, storeSessionToken, hasValidSession, clearSession } from '@/lib/tokenUtils';
 import { ShieldCheck, ShieldX, Loader2, Lock, Home, LogOut, User, IdCard, Send, Clock, AlertTriangle } from 'lucide-react';
@@ -6,222 +6,231 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 
-type AccessState = 'validating' | 'granted' | 'denied' | 'expired' | 'cooldown';
+type AccessState = 'validating' | 'granted' | 'denied' | 'expired' | 'cooldown' | 'checking';
 
 const COOLDOWN_DURATION = 30 * 60 * 1000; // 30 دقيقة
-const COOLDOWN_KEY = 'form-submission-cooldown';
-const COOKIE_NAME = 'form_cooldown';
+const DEVICE_ID_KEY = 'device-unique-id';
 
-// ============= Cookie Utilities =============
-const setCookie = (name: string, value: string, minutes: number): void => {
-  const expires = new Date();
-  expires.setTime(expires.getTime() + minutes * 60 * 1000);
-  document.cookie = `${name}=${value};expires=${expires.toUTCString()};path=/;SameSite=Strict`;
-  console.log('[Cooldown] Cookie set:', name, value);
+// ============= Device ID Management =============
+const generateDeviceId = (): string => {
+  // Generate a unique ID based on browser fingerprint + random
+  const nav = window.navigator;
+  const screen = window.screen;
+  
+  const fingerprint = [
+    nav.userAgent,
+    nav.language,
+    screen.width,
+    screen.height,
+    screen.colorDepth,
+    new Date().getTimezoneOffset(),
+    nav.hardwareConcurrency || 'unknown',
+  ].join('|');
+  
+  // Simple hash function
+  let hash = 0;
+  for (let i = 0; i < fingerprint.length; i++) {
+    const char = fingerprint.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  
+  // Add random component for uniqueness + timestamp
+  const random = Math.random().toString(36).substring(2, 15);
+  const timestamp = Date.now().toString(36);
+  
+  return `${Math.abs(hash).toString(36)}-${random}-${timestamp}`;
 };
 
-const getCookie = (name: string): string | null => {
-  const nameEQ = name + "=";
-  const ca = document.cookie.split(';');
-  for (let i = 0; i < ca.length; i++) {
-    let c = ca[i];
-    while (c.charAt(0) === ' ') c = c.substring(1, c.length);
-    if (c.indexOf(nameEQ) === 0) {
-      return c.substring(nameEQ.length, c.length);
+const getOrCreateDeviceId = (): string => {
+  try {
+    let deviceId = localStorage.getItem(DEVICE_ID_KEY);
+    if (!deviceId) {
+      deviceId = generateDeviceId();
+      localStorage.setItem(DEVICE_ID_KEY, deviceId);
+      console.log('[Device] New device ID created:', deviceId);
+    } else {
+      console.log('[Device] Existing device ID:', deviceId);
     }
-  }
-  return null;
-};
-
-const deleteCookie = (name: string): void => {
-  document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`;
-};
-
-// ============= Cooldown Management =============
-// حفظ الـ cooldown في localStorage و Cookie معاً
-const setCooldownTimestamp = (): void => {
-  const timestamp = Date.now().toString();
-  
-  // حفظ في localStorage
-  try {
-    localStorage.setItem(COOLDOWN_KEY, timestamp);
-    console.log('[Cooldown] localStorage set:', timestamp);
+    return deviceId;
   } catch (e) {
-    console.error('[Cooldown] localStorage error:', e);
+    // Fallback if localStorage is not available
+    console.error('[Device] localStorage error, generating temporary ID');
+    return generateDeviceId();
   }
-  
-  // حفظ في Cookie (30 دقيقة)
-  setCookie(COOKIE_NAME, timestamp, 30);
 };
 
-// التحقق من فترة الانتظار - من localStorage أو Cookie
-const checkCooldown = (): { inCooldown: boolean; remaining: number } => {
-  console.log('[Cooldown] Checking cooldown...');
-  
-  let lastSubmission: string | null = null;
-  
-  // محاولة القراءة من localStorage أولاً
+// ============= Server Cooldown Check =============
+const checkServerCooldown = async (deviceId: string): Promise<{ inCooldown: boolean; remaining: number }> => {
   try {
-    lastSubmission = localStorage.getItem(COOLDOWN_KEY);
-    console.log('[Cooldown] localStorage value:', lastSubmission);
+    console.log('[Server] Checking cooldown for device:', deviceId);
+    
+    const { data, error } = await supabase.functions.invoke('check-device-cooldown', {
+      body: { device_id: deviceId, action: 'check' }
+    });
+
+    if (error) {
+      console.error('[Server] Cooldown check error:', error);
+      return { inCooldown: false, remaining: 0 };
+    }
+
+    console.log('[Server] Cooldown response:', data);
+    return { 
+      inCooldown: data.inCooldown || false, 
+      remaining: data.remaining || 0 
+    };
   } catch (e) {
-    console.error('[Cooldown] localStorage read error:', e);
-  }
-  
-  // إذا لم نجد في localStorage، نحاول من Cookie
-  if (!lastSubmission) {
-    lastSubmission = getCookie(COOKIE_NAME);
-    console.log('[Cooldown] Cookie value:', lastSubmission);
-  }
-  
-  if (!lastSubmission) {
-    console.log('[Cooldown] No cooldown found');
+    console.error('[Server] Cooldown check failed:', e);
     return { inCooldown: false, remaining: 0 };
   }
-  
-  const lastTime = parseInt(lastSubmission, 10);
-  if (isNaN(lastTime)) {
-    console.log('[Cooldown] Invalid timestamp, clearing');
-    try { localStorage.removeItem(COOLDOWN_KEY); } catch {}
-    deleteCookie(COOKIE_NAME);
-    return { inCooldown: false, remaining: 0 };
-  }
-  
-  const elapsed = Date.now() - lastTime;
-  const remaining = COOLDOWN_DURATION - elapsed;
-  
-  console.log('[Cooldown] Elapsed:', elapsed, 'Remaining:', remaining);
-  
-  if (elapsed < COOLDOWN_DURATION) {
-    console.log('[Cooldown] ACTIVE - user must wait');
-    return { inCooldown: true, remaining };
-  }
-  
-  // انتهت فترة الانتظار - حذف القيم
-  console.log('[Cooldown] Expired, clearing');
-  try { localStorage.removeItem(COOLDOWN_KEY); } catch {}
-  deleteCookie(COOKIE_NAME);
-  return { inCooldown: false, remaining: 0 };
 };
 
-// تم حذف getInitialState - الفحص يتم مباشرة في الـ component
+const recordServerSubmission = async (deviceId: string, name: string, userId: string): Promise<boolean> => {
+  try {
+    console.log('[Server] Recording submission for device:', deviceId);
+    
+    const { data, error } = await supabase.functions.invoke('check-device-cooldown', {
+      body: { 
+        device_id: deviceId, 
+        action: 'submit',
+        name,
+        user_id_field: userId
+      }
+    });
+
+    if (error) {
+      console.error('[Server] Submit error:', error);
+      return false;
+    }
+
+    console.log('[Server] Submit response:', data);
+    return data.success || false;
+  } catch (e) {
+    console.error('[Server] Submit failed:', e);
+    return false;
+  }
+};
 
 const SecurePage = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { toast } = useToast();
   
-  // فحص الـ cooldown فوراً عند كل render - هذا يضمن عدم تجاوزه أبداً
-  const cooldownCheck = checkCooldown();
-  const isInCooldown = cooldownCheck.inCooldown;
-  
-  // تحديد الحالة الأولية
-  const [accessState, setAccessState] = useState<AccessState>(() => {
-    const { inCooldown } = checkCooldown();
-    return inCooldown ? 'cooldown' : 'validating';
-  });
-  const [validationMessage, setValidationMessage] = useState<string>(() => {
-    const { inCooldown } = checkCooldown();
-    return inCooldown ? 'COOLDOWN_ACTIVE' : '';
-  });
-  const [cooldownRemaining, setCooldownRemaining] = useState<number>(cooldownCheck.remaining);
+  const [accessState, setAccessState] = useState<AccessState>('checking');
+  const [validationMessage, setValidationMessage] = useState<string>('');
+  const [cooldownRemaining, setCooldownRemaining] = useState<number>(0);
+  const [deviceId, setDeviceId] = useState<string>('');
   
   // Form state
   const [name, setName] = useState('');
   const [userId, setUserId] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
-  
-  // تحديث الحالة فوراً إذا كان هناك cooldown نشط (للتعامل مع تغيير URL)
-  useEffect(() => {
-    if (isInCooldown && accessState !== 'cooldown') {
-      console.log('[Cooldown] FORCING cooldown state on URL change');
-      setAccessState('cooldown');
-      setValidationMessage('COOLDOWN_ACTIVE');
-      setCooldownRemaining(cooldownCheck.remaining);
-    }
-  }, [isInCooldown, accessState, cooldownCheck.remaining]);
 
-  // تحديث العد التنازلي
+  // Initialize device ID and check server cooldown FIRST
+  useEffect(() => {
+    const initializeAndCheck = async () => {
+      console.log('[Init] Starting initialization...');
+      
+      // Get or create device ID
+      const id = getOrCreateDeviceId();
+      setDeviceId(id);
+      
+      // Check server cooldown FIRST
+      const { inCooldown, remaining } = await checkServerCooldown(id);
+      
+      if (inCooldown) {
+        console.log('[Init] Device in cooldown from server');
+        setAccessState('cooldown');
+        setCooldownRemaining(remaining);
+        setValidationMessage('COOLDOWN_ACTIVE');
+        return;
+      }
+      
+      // Check if user already has a valid session
+      if (hasValidSession()) {
+        console.log('[Init] Valid session found');
+        setAccessState('granted');
+        setValidationMessage('SESSION_RESTORED');
+        return;
+      }
+      
+      // Now validate token
+      const token = searchParams.get('token');
+      
+      if (!token) {
+        console.log('[Init] No token provided');
+        setAccessState('denied');
+        setValidationMessage('NO_TOKEN_PROVIDED');
+        return;
+      }
+      
+      // Validate token
+      setAccessState('validating');
+      
+      // Simulate validation delay
+      setTimeout(async () => {
+        // Double-check server cooldown before granting access
+        const recheck = await checkServerCooldown(id);
+        if (recheck.inCooldown) {
+          setAccessState('cooldown');
+          setCooldownRemaining(recheck.remaining);
+          setValidationMessage('COOLDOWN_ACTIVE');
+          return;
+        }
+        
+        const result = validateToken(token);
+        
+        if (result.valid) {
+          storeSessionToken();
+          setAccessState('granted');
+          setValidationMessage('ACCESS_GRANTED');
+        } else {
+          setAccessState('expired');
+          setValidationMessage('TOKEN_EXPIRED');
+        }
+      }, 1500);
+    };
+    
+    initializeAndCheck();
+  }, [searchParams]);
+
+  // Update countdown timer
   useEffect(() => {
     if (accessState !== 'cooldown') return;
     
-    const timer = setInterval(() => {
-      const { inCooldown, remaining } = checkCooldown();
+    const timer = setInterval(async () => {
+      // Re-check server cooldown
+      const { inCooldown, remaining } = await checkServerCooldown(deviceId);
       if (!inCooldown) {
         setAccessState('granted');
         setCooldownRemaining(0);
       } else {
         setCooldownRemaining(remaining);
       }
+    }, 5000); // Check every 5 seconds
+    
+    // Also update locally every second for smoother countdown
+    const localTimer = setInterval(() => {
+      setCooldownRemaining(prev => Math.max(0, prev - 1000));
     }, 1000);
     
-    return () => clearInterval(timer);
-  }, [accessState]);
-
-  useEffect(() => {
-    // إذا كان المستخدم في فترة انتظار، لا تفعل شيئاً
-    if (accessState === 'cooldown' || isInCooldown) {
-      return;
-    }
-
-    // التحقق من فترة الانتظار مرة أخرى (للتأكد)
-    const { inCooldown, remaining } = checkCooldown();
-    if (inCooldown) {
-      setAccessState('cooldown');
-      setCooldownRemaining(remaining);
-      setValidationMessage('COOLDOWN_ACTIVE');
-      return;
-    }
-
-    // Check if user already has a valid session
-    if (hasValidSession()) {
-      setAccessState('granted');
-      setValidationMessage('SESSION_RESTORED');
-      return;
-    }
-
-    const token = searchParams.get('token');
-    
-    if (!token) {
-      setAccessState('denied');
-      setValidationMessage('NO_TOKEN_PROVIDED');
-      return;
-    }
-
-    // Simulate validation delay for effect
-    const validationTimer = setTimeout(() => {
-      // تحقق أخير من الـ cooldown قبل منح الوصول
-      const cooldownCheck = checkCooldown();
-      if (cooldownCheck.inCooldown) {
-        setAccessState('cooldown');
-        setCooldownRemaining(cooldownCheck.remaining);
-        setValidationMessage('COOLDOWN_ACTIVE');
-        return;
-      }
-
-      const result = validateToken(token);
-      
-      if (result.valid) {
-        storeSessionToken();
-        setAccessState('granted');
-        setValidationMessage('ACCESS_GRANTED');
-      } else {
-        setAccessState('expired');
-        setValidationMessage('TOKEN_EXPIRED');
-      }
-    }, 1500);
-
-    return () => clearTimeout(validationTimer);
-  }, [searchParams, isInCooldown, accessState]);
+    return () => {
+      clearInterval(timer);
+      clearInterval(localTimer);
+    };
+  }, [accessState, deviceId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // التحقق مرة أخرى من فترة الانتظار
-    const { inCooldown } = checkCooldown();
+    // Double-check server cooldown before submit
+    const { inCooldown, remaining } = await checkServerCooldown(deviceId);
     if (inCooldown) {
+      setAccessState('cooldown');
+      setCooldownRemaining(remaining);
       toast({
         title: "غير مسموح",
         description: "يجب الانتظار قبل إرسال بيانات جديدة",
@@ -242,6 +251,14 @@ const SecurePage = () => {
     setIsSubmitting(true);
 
     try {
+      // Record submission on server FIRST
+      const recorded = await recordServerSubmission(deviceId, name.trim(), userId.trim());
+      
+      if (!recorded) {
+        throw new Error('Failed to record submission');
+      }
+      
+      // Send to Telegram
       const response = await fetch('/api/send-to-telegram', {
         method: 'POST',
         headers: {
@@ -260,9 +277,7 @@ const SecurePage = () => {
         throw new Error(errorMessage);
       }
 
-      // حفظ وقت الإرسال لفترة الانتظار (localStorage + Cookie)
-      setCooldownTimestamp();
-      console.log('[Cooldown] Submission successful, cooldown activated');
+      console.log('[Submit] Submission successful');
       
       setIsSubmitted(true);
       toast({
@@ -301,8 +316,8 @@ const SecurePage = () => {
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  // Validating state
-  if (accessState === 'validating') {
+  // Checking/Validating state
+  if (accessState === 'checking' || accessState === 'validating') {
     return (
       <div className="min-h-screen bg-background cyber-grid flex flex-col items-center justify-center p-4">
         <div className="text-center">
@@ -313,8 +328,8 @@ const SecurePage = () => {
           <h1 className="font-display text-2xl text-glow mb-4">جاري التحقق</h1>
           <div className="flex flex-col gap-2 font-mono text-sm text-muted-foreground">
             <p className="animate-pulse">VALIDATING TOKEN...</p>
-            <p className="animate-pulse delay-100">CHECKING TIMESTAMP...</p>
-            <p className="animate-pulse delay-200">DECRYPTING ACCESS KEY...</p>
+            <p className="animate-pulse delay-100">CHECKING DEVICE...</p>
+            <p className="animate-pulse delay-200">VERIFYING ACCESS...</p>
           </div>
         </div>
       </div>
@@ -343,7 +358,7 @@ const SecurePage = () => {
               </span>
             </div>
             <p className="text-sm text-muted-foreground" dir="rtl">
-              لقد قمت بإرسال بيانات مؤخراً. يرجى الانتظار حتى انتهاء فترة الانتظار (30 دقيقة) قبل إرسال بيانات جديدة.
+              لقد قمت بإرسال بيانات مؤخراً من هذا الجهاز. يرجى الانتظار حتى انتهاء فترة الانتظار (30 دقيقة) قبل إرسال بيانات جديدة.
             </p>
           </div>
 
@@ -373,7 +388,7 @@ const SecurePage = () => {
               COOLDOWN ACTIVE
             </span>
             <span className="text-muted-foreground">|</span>
-            <span className="text-muted-foreground">RATE LIMITED</span>
+            <span className="text-muted-foreground">DEVICE: {deviceId.substring(0, 8)}...</span>
           </div>
         </footer>
       </div>
@@ -473,38 +488,34 @@ const SecurePage = () => {
           <div className="w-full max-w-md">
             {/* Form Card */}
             <div className="relative">
-              <div className="absolute -inset-4 bg-gradient-to-r from-primary/20 via-secondary/20 to-primary/20 rounded-3xl blur-xl opacity-50" />
-              
-              <div className="relative bg-card border border-primary/30 rounded-2xl p-8 box-glow">
-                {/* Header */}
+              <div className="absolute inset-0 bg-primary/5 rounded-2xl blur-xl" />
+              <div className="relative bg-card/80 backdrop-blur border border-border rounded-2xl p-8">
                 <div className="text-center mb-8">
-                  <div className="w-16 h-16 bg-primary/20 rounded-full flex items-center justify-center mx-auto mb-4 box-glow">
+                  <div className="inline-flex items-center justify-center w-16 h-16 bg-primary/10 rounded-full mb-4">
                     <Lock className="w-8 h-8 text-primary" />
                   </div>
-                  <h2 className="font-display text-2xl text-glow mb-2">تسجيل البيانات</h2>
+                  <h2 className="font-display text-2xl text-glow mb-2">بياناتك</h2>
                   <p className="text-sm text-muted-foreground" dir="rtl">
-                    أدخل بياناتك للمتابعة
+                    يرجى إدخال البيانات المطلوبة
                   </p>
                 </div>
 
-                {/* Form */}
                 <form onSubmit={handleSubmit} className="space-y-6">
                   {/* Name Field */}
                   <div className="space-y-2">
                     <Label htmlFor="name" className="flex items-center gap-2 text-foreground">
                       <User className="w-4 h-4 text-primary" />
-                      الاسم
+                      <span>الاسم</span>
                     </Label>
                     <Input
                       id="name"
                       type="text"
-                      placeholder="أدخل اسمك"
+                      placeholder="أدخل اسمك الكامل"
                       value={name}
                       onChange={(e) => setName(e.target.value)}
-                      className="bg-muted/50 border-border focus:border-primary focus:ring-primary/50"
+                      className="bg-background/50 border-border focus:border-primary transition-colors"
                       dir="rtl"
-                      maxLength={100}
-                      required
+                      disabled={isSubmitting}
                     />
                   </div>
 
@@ -512,27 +523,25 @@ const SecurePage = () => {
                   <div className="space-y-2">
                     <Label htmlFor="userId" className="flex items-center gap-2 text-foreground">
                       <IdCard className="w-4 h-4 text-primary" />
-                      ID
+                      <span>رقم الهوية</span>
                     </Label>
                     <Input
                       id="userId"
                       type="text"
-                      placeholder="أدخل الـ ID الخاص بك"
+                      placeholder="أدخل رقم الهوية"
                       value={userId}
                       onChange={(e) => setUserId(e.target.value)}
-                      className="bg-muted/50 border-border focus:border-primary focus:ring-primary/50"
+                      className="bg-background/50 border-border focus:border-primary transition-colors"
                       dir="rtl"
-                      maxLength={50}
-                      required
+                      disabled={isSubmitting}
                     />
                   </div>
 
                   {/* Submit Button */}
                   <Button
                     type="submit"
-                    className="w-full gap-2"
+                    className="w-full gap-2 bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 transition-all duration-300"
                     disabled={isSubmitting}
-                    variant="cyber"
                   >
                     {isSubmitting ? (
                       <>
@@ -542,18 +551,17 @@ const SecurePage = () => {
                     ) : (
                       <>
                         <Send className="w-4 h-4" />
-                        إرسال
+                        إرسال البيانات
                       </>
                     )}
                   </Button>
                 </form>
 
                 {/* Security Notice */}
-                <div className="mt-6 pt-6 border-t border-border">
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <span className="w-2 h-2 rounded-full bg-cyber-green animate-pulse" />
-                    <span className="font-mono">ENCRYPTED CONNECTION • SECURE</span>
-                  </div>
+                <div className="mt-6 p-3 bg-muted/50 rounded-lg border border-border">
+                  <p className="text-xs text-muted-foreground text-center" dir="rtl">
+                    🔒 بياناتك محمية ومشفرة
+                  </p>
                 </div>
               </div>
             </div>
@@ -569,7 +577,7 @@ const SecurePage = () => {
             SECURE CONNECTION
           </span>
           <span className="text-muted-foreground">|</span>
-          <span className="text-muted-foreground">AES-256 ENCRYPTION</span>
+          <span className="text-muted-foreground">DEVICE: {deviceId.substring(0, 8)}...</span>
         </div>
       </footer>
     </div>

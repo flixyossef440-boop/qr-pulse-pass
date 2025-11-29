@@ -1,1 +1,7 @@
 project_id = "vnkqebvcucntzscrvcps"
+
+[functions.send-to-telegram]
+verify_jwt = false
+
+[functions.check-device-cooldown]
+verify_jwt = false
